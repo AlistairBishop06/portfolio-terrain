@@ -2,9 +2,11 @@ export const CONFIG = {
   github: {
     owner: "AlistairBishop06",
     api: "https://api.github.com",
-    cacheKey: "portfolio-terrain:github:v5",
-    cacheMs: 1000 * 60 * 45,
-    commitConcurrency: 5
+    cacheKey: "portfolio-terrain:github:v6",
+    cacheMs: 1000 * 60 * 60 * 6,
+    commitConcurrency: 3,
+    fetchExactCommitCounts: false,
+    exactCommitRepoLimit: 6
   },
   terrain: {
     size: 86,

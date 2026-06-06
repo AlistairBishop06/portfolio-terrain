@@ -14,10 +14,13 @@ export async function loadGitHubPortfolio(owner, { forceRefresh = false } = {}) 
     }
 
     const enrichedRepos = await enrichWithCommitCounts(repos);
+    const exactCounts = enrichedRepos.filter((repo) => repo.commitCountSource === "github").length;
     const portfolio = {
       owner,
       fetchedAt: new Date().toISOString(),
-      dataSource: "live GitHub API",
+      dataSource: exactCounts
+        ? `live GitHub API (${exactCounts} exact commit counts, rest estimated)`
+        : "live GitHub API (commit counts estimated)",
       repos: enrichedRepos
     };
 
@@ -25,7 +28,15 @@ export async function loadGitHubPortfolio(owner, { forceRefresh = false } = {}) 
     return portfolio;
   } catch (error) {
     console.warn("Using fallback GitHub data:", error);
-    return fallbackPortfolio(owner, "fallback: GitHub API unavailable or rate limited");
+    const stale = readCache({ allowExpired: true });
+    if (stale) {
+      return {
+        ...stale,
+        dataSource: `${stale.dataSource}; stale cache because GitHub is rate limited`
+      };
+    }
+
+    return fallbackPortfolio(owner, describeFallbackSource(error));
   }
 }
 
@@ -40,7 +51,8 @@ async function fetchRepos(owner) {
     });
 
     if (response.status === 403 || response.status === 429) {
-      throw new Error("GitHub repository rate limit reached");
+      const reset = response.headers.get("x-ratelimit-reset");
+      throw new Error(`GitHub repository rate limit reached${reset ? ` reset:${reset}` : ""}`);
     }
 
     if (!response.ok) {
@@ -57,7 +69,30 @@ async function fetchRepos(owner) {
 }
 
 async function enrichWithCommitCounts(repos) {
+  if (!CONFIG.github.fetchExactCommitCounts) {
+    return repos.map((repo) => ({
+      ...repo,
+      commitCount: estimateCommitCount(repo),
+      commitCountSource: "estimated"
+    }));
+  }
+
+  const exactNames = new Set(
+    [...repos]
+      .sort((a, b) => estimateCommitCount(b) - estimateCommitCount(a))
+      .slice(0, CONFIG.github.exactCommitRepoLimit)
+      .map((repo) => repo.fullName)
+  );
+
   const tasks = repos.map((repo) => async () => {
+    if (!exactNames.has(repo.fullName)) {
+      return {
+        ...repo,
+        commitCount: estimateCommitCount(repo),
+        commitCountSource: "estimated"
+      };
+    }
+
     try {
       return {
         ...repo,
@@ -86,7 +121,8 @@ async function fetchCommitCount(repo) {
 
   if (response.status === 409 || response.status === 404) return 0;
   if (response.status === 403 || response.status === 429) {
-    throw new Error("GitHub commit rate limit reached");
+    const reset = response.headers.get("x-ratelimit-reset");
+    throw new Error(`GitHub commit rate limit reached${reset ? ` reset:${reset}` : ""}`);
   }
   if (!response.ok) {
     throw new Error(`Commit count request failed: ${response.status}`);
@@ -155,12 +191,28 @@ async function runWithConcurrency(tasks, limit) {
   return results;
 }
 
-function readCache() {
+function describeFallbackSource(error) {
+  const message = String(error?.message || error || "");
+  const reset = message.match(/reset:([0-9]+)/)?.[1];
+  if (reset) {
+    const resetDate = new Date(Number(reset) * 1000);
+    const resetLabel = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(resetDate);
+    return `fallback: GitHub API rate limit exhausted until ${resetLabel}`;
+  }
+  if (message.includes("rate limit")) return "fallback: GitHub API rate limit exhausted";
+  return "fallback: GitHub API unavailable";
+}
+
+function readCache({ allowExpired = false } = {}) {
   try {
     const raw = localStorage.getItem(CONFIG.github.cacheKey);
     if (!raw) return null;
     const cached = JSON.parse(raw);
-    if (Date.now() - cached.timestamp > CONFIG.github.cacheMs) return null;
+    if (!allowExpired && Date.now() - cached.timestamp > CONFIG.github.cacheMs) return null;
     return cached.portfolio;
   } catch {
     return null;
