@@ -9,7 +9,7 @@ export function startRenderLoop({ renderer, scene, camera, controls, picker, upd
 
     controls.update(delta);
     picker.update();
-    update?.(elapsed, delta);
+    update?.(elapsed, delta, camera);
     renderer.render(scene, camera);
   });
 }

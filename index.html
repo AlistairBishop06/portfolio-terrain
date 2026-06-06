@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A 3D voxel contribution terrain portfolio for Alistair Bishop.">
-    <title>Terrain | Alistair Bishop</title>
+    <meta name="description" content="A realistic 3D GitHub repository landscape for Alistair Bishop.">
+    <title>Alistair Bishop | GitHub Terrain</title>
     <link rel="preconnect" href="https://api.github.com">
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="stylesheet" href="./style.css">
@@ -17,75 +17,87 @@
     </script>
   </head>
   <body>
-    <canvas id="terrain-canvas" aria-label="Interactive 3D contribution terrain"></canvas>
+    <canvas id="terrain-canvas" aria-label="Interactive 3D repository landscape"></canvas>
 
     <main class="hud" aria-live="polite">
-      <section class="hero-card glass">
-        <p class="eyebrow">GitHub Terrain</p>
-        <h1>AlistairBishop06</h1>
+      <section class="hero glass">
+        <p class="eyebrow">GitHub Portfolio Terrain</p>
+        <h1>Alistair Bishop</h1>
         <p>
-          Public repository contributions rendered as a flyable voxel landscape:
-          streaks become ridges, quiet weeks become valleys, and languages tint the biome.
+          Public repositories become a living world: languages form biomes, commit history raises mountains,
+          and related projects cluster into natural regions.
         </p>
         <div class="hero-actions">
           <a id="github-link" class="button primary" href="https://github.com/AlistairBishop06" target="_blank" rel="noreferrer">Open GitHub</a>
-          <button id="refresh-data" class="button" type="button">Refresh terrain</button>
+          <button id="refresh-data" class="button" type="button">Refresh Data</button>
         </div>
       </section>
 
-      <section class="stats-grid">
+      <section class="stats-grid" aria-label="Portfolio summary">
         <article class="stat glass">
           <span id="repo-count">--</span>
-          <small>public repos</small>
+          <small>repos</small>
         </article>
         <article class="stat glass">
           <span id="commit-count">--</span>
-          <small>year activity</small>
+          <small>commits</small>
         </article>
         <article class="stat glass">
           <span id="top-language">--</span>
+          <small>top language</small>
+        </article>
+        <article class="stat glass">
+          <span id="top-biome">--</span>
           <small>dominant biome</small>
         </article>
       </section>
+
+      <p id="data-source" class="source-pill glass">--</p>
     </main>
 
     <aside id="repo-panel" class="repo-panel glass" aria-label="Selected repository">
-      <p class="eyebrow">Selected Voxel</p>
-      <h2 id="repo-name">Fly over the terrain</h2>
-      <p id="repo-description">Hover or click a peak to inspect a repository, its language biome, and recent public activity.</p>
+      <p class="eyebrow">Repository Landmark</p>
+      <h2 id="repo-name">Loading terrain</h2>
+      <p id="repo-description">Repository metadata will appear here when a flag is selected.</p>
       <dl>
         <div>
           <dt>Language</dt>
           <dd id="repo-language">--</dd>
         </div>
         <div>
+          <dt>Biome</dt>
+          <dd id="repo-biome">--</dd>
+        </div>
+        <div>
+          <dt>Commits</dt>
+          <dd id="repo-commits">--</dd>
+        </div>
+        <div>
           <dt>Stars</dt>
           <dd id="repo-stars">--</dd>
+        </div>
+        <div>
+          <dt>Forks</dt>
+          <dd id="repo-forks">--</dd>
         </div>
         <div>
           <dt>Updated</dt>
           <dd id="repo-updated">--</dd>
         </div>
       </dl>
-      <a id="repo-link" class="button full" href="https://github.com/AlistairBishop06?tab=repositories" target="_blank" rel="noreferrer">View repository</a>
+      <a id="repo-link" class="button full" href="https://github.com/AlistairBishop06?tab=repositories" target="_blank" rel="noreferrer">Open on GitHub</a>
     </aside>
 
-    <section class="controls glass" aria-label="Controls">
-      <strong>Controls</strong>
-      <span>WASD / arrows move</span>
-      <span>Drag to orbit</span>
-      <span>Scroll zooms</span>
-      <span>Click peaks for repo cards</span>
-    </section>
+    <div id="hover-label" class="hover-label" aria-hidden="true"></div>
 
     <section id="loading" class="loading glass">
       <div class="loader" aria-hidden="true"></div>
-      <p id="loading-copy">Contacting GitHub and raising mountains...</p>
+      <p id="loading-copy">Contacting GitHub and shaping terrain...</p>
     </section>
 
     <noscript>
       <section class="noscript glass">
-        This terrain needs JavaScript enabled because the landscape is generated from live GitHub data.
+        This terrain needs JavaScript enabled because the landscape is generated from GitHub repository data.
       </section>
     </noscript>
 
@@ -95,7 +107,7 @@
         if (window.__terrainModuleStarted) return;
         const loadingCopy = document.querySelector("#loading-copy");
         if (loadingCopy) {
-          loadingCopy.textContent = "The terrain module did not start. Run this with node server.js or GitHub Pages so .js files are served as JavaScript.";
+          loadingCopy.textContent = "The terrain module did not start. Run this with node server.js or deploy through GitHub Pages.";
         }
       }, 2500);
     </script>

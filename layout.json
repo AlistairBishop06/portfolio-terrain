@@ -1,18 +1,19 @@
 {
-  "title": "Terrain",
+  "title": "GitHub Portfolio Terrain",
   "owner": "AlistairBishop06",
   "deploy": "GitHub Pages",
   "entry": "index.html",
   "scripts": [
     "scripts/config.js",
-    "scripts/dom-ui.js",
+    "scripts/fallback-data.js",
     "scripts/github-api.js",
-    "scripts/contribution-heightmap.js",
+    "scripts/terrain-model.js",
     "scripts/three-scene.js",
+    "scripts/world-map.js",
     "scripts/camera-controls.js",
-    "scripts/voxel-terrain.js",
     "scripts/terrain-picker.js",
     "scripts/repo-panel.js",
+    "scripts/dom-ui.js",
     "scripts/render-loop.js"
   ]
 }

@@ -3,9 +3,11 @@ import { CONFIG } from "./config.js";
 
 export function createCameraControls(camera, canvas) {
   const target = new THREE.Vector3(CONFIG.camera.target.x, CONFIG.camera.target.y, CONFIG.camera.target.z);
+  const desiredTarget = target.clone();
   const spherical = new THREE.Spherical().setFromVector3(camera.position.clone().sub(target));
   const keys = new Set();
   const pointer = { active: false, x: 0, y: 0 };
+  const bounds = CONFIG.terrain.size * 0.42;
 
   window.addEventListener("keydown", (event) => keys.add(event.key.toLowerCase()));
   window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
@@ -24,31 +26,47 @@ export function createCameraControls(camera, canvas) {
     pointer.x = event.clientX;
     pointer.y = event.clientY;
 
-    spherical.theta -= dx * 0.006;
-    spherical.phi = clamp(spherical.phi - dy * 0.006, 0.24, Math.PI / 2.05);
+    spherical.theta -= dx * 0.0052;
+    spherical.phi = clamp(spherical.phi - dy * 0.0048, 0.28, Math.PI / 2.12);
   });
 
-  canvas.addEventListener("pointerup", (event) => {
+  function stopPointer(event) {
     pointer.active = false;
-    canvas.releasePointerCapture(event.pointerId);
-  });
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  canvas.addEventListener("pointerup", stopPointer);
+  canvas.addEventListener("pointercancel", stopPointer);
 
   canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
-    spherical.radius = clamp(spherical.radius + event.deltaY * 0.018, 7, 48);
+    spherical.radius = clamp(
+      spherical.radius + event.deltaY * 0.022,
+      CONFIG.camera.minDistance,
+      CONFIG.camera.maxDistance
+    );
   }, { passive: false });
 
   return {
     update(delta) {
-      const speed = delta * 9.5;
+      const speed = delta * (11 + spherical.radius * 0.1);
       const forward = Number(keys.has("w") || keys.has("arrowup")) - Number(keys.has("s") || keys.has("arrowdown"));
       const side = Number(keys.has("d") || keys.has("arrowright")) - Number(keys.has("a") || keys.has("arrowleft"));
 
-      target.x = clamp(target.x + side * speed, -28, 28);
-      target.z = clamp(target.z - forward * speed, -10, 10);
+      const angle = spherical.theta;
+      const forwardVector = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+      const sideVector = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
-      const desired = new THREE.Vector3().setFromSpherical(spherical).add(target);
-      camera.position.lerp(desired, 0.12);
+      desiredTarget.addScaledVector(forwardVector, -forward * speed);
+      desiredTarget.addScaledVector(sideVector, side * speed);
+      desiredTarget.x = clamp(desiredTarget.x, -bounds, bounds);
+      desiredTarget.z = clamp(desiredTarget.z, -bounds, bounds);
+
+      target.lerp(desiredTarget, 0.12);
+      const desiredPosition = new THREE.Vector3().setFromSpherical(spherical).add(target);
+      camera.position.lerp(desiredPosition, 0.14);
       camera.lookAt(target);
     }
   };

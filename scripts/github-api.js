@@ -1,4 +1,5 @@
 import { CONFIG } from "./config.js";
+import { FALLBACK_REPOS } from "./fallback-data.js";
 
 export async function loadGitHubPortfolio(owner, { forceRefresh = false } = {}) {
   const cached = readCache();
@@ -6,43 +7,26 @@ export async function loadGitHubPortfolio(owner, { forceRefresh = false } = {}) 
     return cached;
   }
 
-  const repos = await fetchRepos(owner);
-  const reposForCommits = repos.slice(0, CONFIG.github.maxReposForCommits);
-
-  const commitResults = await Promise.allSettled(
-    reposForCommits.map((repo) => fetchRepoCommits(owner, repo))
-  );
-
-  const commitsByRepo = new Map();
-  commitResults.forEach((result) => {
-    if (result.status === "fulfilled") {
-      commitsByRepo.set(result.value.repoName, result.value.commits);
+  try {
+    const repos = await fetchRepos(owner);
+    if (!repos.length) {
+      return fallbackPortfolio(owner, "fallback: no public repositories returned");
     }
-  });
 
-  const enrichedRepos = repos.map((repo) => ({
-    name: repo.name,
-    fullName: repo.full_name,
-    description: repo.description,
-    language: repo.language || "Unknown",
-    htmlUrl: repo.html_url,
-    stars: repo.stargazers_count,
-    forks: repo.forks_count,
-    fork: repo.fork,
-    updatedAt: repo.updated_at,
-    pushedAt: repo.pushed_at,
-    size: repo.size,
-    commits: commitsByRepo.get(repo.name) ?? []
-  }));
+    const enrichedRepos = await enrichWithCommitCounts(repos);
+    const portfolio = {
+      owner,
+      fetchedAt: new Date().toISOString(),
+      dataSource: "live GitHub API",
+      repos: enrichedRepos
+    };
 
-  const portfolio = {
-    owner,
-    fetchedAt: new Date().toISOString(),
-    repos: enrichedRepos
-  };
-
-  writeCache(portfolio);
-  return portfolio;
+    writeCache(portfolio);
+    return portfolio;
+  } catch (error) {
+    console.warn("Using fallback GitHub data:", error);
+    return fallbackPortfolio(owner, "fallback: GitHub API unavailable or rate limited");
+  }
 }
 
 async function fetchRepos(owner) {
@@ -55,8 +39,12 @@ async function fetchRepos(owner) {
       headers: { Accept: "application/vnd.github+json" }
     });
 
+    if (response.status === 403 || response.status === 429) {
+      throw new Error("GitHub repository rate limit reached");
+    }
+
     if (!response.ok) {
-      throw new Error(`GitHub repos request failed: ${response.status}`);
+      throw new Error(`GitHub repositories request failed: ${response.status}`);
     }
 
     const batch = await response.json();
@@ -65,35 +53,106 @@ async function fetchRepos(owner) {
     page += 1;
   }
 
-  return repos;
+  return repos.map(normalizeRepo);
 }
 
-async function fetchRepoCommits(owner, repo) {
-  const since = new Date();
-  since.setDate(since.getDate() - CONFIG.github.lookbackDays);
+async function enrichWithCommitCounts(repos) {
+  const tasks = repos.map((repo) => async () => {
+    try {
+      return {
+        ...repo,
+        commitCount: await fetchCommitCount(repo),
+        commitCountSource: "github"
+      };
+    } catch (error) {
+      console.warn(`Using estimated commit count for ${repo.name}:`, error);
+      return {
+        ...repo,
+        commitCount: estimateCommitCount(repo),
+        commitCountSource: "estimated"
+      };
+    }
+  });
 
-  const url = `${CONFIG.github.api}/repos/${owner}/${repo.name}/commits?author=${owner}&since=${since.toISOString()}&per_page=100`;
+  return runWithConcurrency(tasks, CONFIG.github.commitConcurrency);
+}
+
+async function fetchCommitCount(repo) {
+  const [repoOwner, repoName] = repo.fullName.split("/");
+  const url = `${CONFIG.github.api}/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/commits?sha=${encodeURIComponent(repo.defaultBranch)}&per_page=1`;
   const response = await fetch(url, {
     headers: { Accept: "application/vnd.github+json" }
   });
 
-  if (response.status === 409 || response.status === 404) {
-    return { repoName: repo.name, commits: [] };
+  if (response.status === 409 || response.status === 404) return 0;
+  if (response.status === 403 || response.status === 429) {
+    throw new Error("GitHub commit rate limit reached");
   }
-
   if (!response.ok) {
-    throw new Error(`GitHub commits request failed for ${repo.name}: ${response.status}`);
+    throw new Error(`Commit count request failed: ${response.status}`);
   }
 
-  const commits = await response.json();
+  const link = response.headers.get("Link") || "";
+  const lastPage = link.match(/[?&]page=(\d+)>; rel="last"/);
+  if (lastPage) return Number(lastPage[1]);
+
+  const body = await response.json();
+  return Array.isArray(body) ? body.length : 0;
+}
+
+function normalizeRepo(repo) {
   return {
-    repoName: repo.name,
-    commits: commits.map((item) => ({
-      sha: item.sha,
-      date: item.commit?.author?.date || item.commit?.committer?.date,
-      message: item.commit?.message || ""
+    name: repo.name,
+    fullName: repo.full_name,
+    description: repo.description,
+    language: repo.language || "Unknown",
+    htmlUrl: repo.html_url,
+    stars: repo.stargazers_count || 0,
+    forks: repo.forks_count || 0,
+    fork: Boolean(repo.fork),
+    updatedAt: repo.updated_at,
+    pushedAt: repo.pushed_at,
+    size: repo.size || 0,
+    defaultBranch: repo.default_branch || "main",
+    commitCount: 0,
+    commitCountSource: "pending"
+  };
+}
+
+function fallbackPortfolio(owner, dataSource) {
+  return {
+    owner,
+    fetchedAt: new Date().toISOString(),
+    dataSource,
+    repos: FALLBACK_REPOS.map((repo) => ({
+      ...repo,
+      commitCountSource: "fallback"
     }))
   };
+}
+
+function estimateCommitCount(repo) {
+  const daysSincePush = Math.max(1, (Date.now() - new Date(repo.pushedAt || repo.updatedAt).getTime()) / 86400000);
+  const recency = Math.max(0, 10 - Math.log1p(daysSincePush));
+  const sizeSignal = Math.log1p(repo.size || 0) * 2.2;
+  const socialSignal = (repo.stars || 0) * 2 + (repo.forks || 0) * 1.4;
+  return Math.max(1, Math.round(sizeSignal + recency + socialSignal));
+}
+
+async function runWithConcurrency(tasks, limit) {
+  const results = [];
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < tasks.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await tasks[index]();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
 }
 
 function readCache() {
@@ -115,6 +174,6 @@ function writeCache(portfolio) {
       portfolio
     }));
   } catch {
-    // Cache is an optimization only.
+    // Caching is only an optimization for GitHub rate limits.
   }
 }

@@ -1,12 +1,43 @@
-# Terrain
+# GitHub Portfolio Terrain
 
-An interactive 3D portfolio for `AlistairBishop06`, designed to deploy directly on GitHub Pages.
+A deployable static portfolio for `AlistairBishop06`. It fetches public GitHub repositories, clusters them by language and commit activity, then renders them as a smooth interactive 3D landscape.
 
-The site turns public GitHub repository contributions into a flyable voxel landscape. Repository pushes become peaks, public commits by `AlistairBishop06` become terrain height, streaks become ridges, quiet days become valleys, and repository languages tint the biome.
+## What It Does
+
+- Fetches owner repositories from the GitHub REST API.
+- Requests lightweight per-repo commit counts from each default branch.
+- Falls back to bundled repository data if GitHub is unavailable or rate-limited.
+- Groups repositories into language biomes, then places similar commit counts closer together.
+- Uses commit count to shape terrain height, landmark size, prop density, and cluster prominence.
+- Renders a continuous Three.js terrain mesh with flags, hover labels, and click-through repository panels.
+
+## File Structure
+
+```text
+.
+├── index.html
+├── main.js
+├── style.css
+├── layout.json
+├── server.js
+├── README.md
+└── scripts/
+    ├── camera-controls.js
+    ├── config.js
+    ├── dom-ui.js
+    ├── fallback-data.js
+    ├── github-api.js
+    ├── render-loop.js
+    ├── repo-panel.js
+    ├── terrain-model.js
+    ├── terrain-picker.js
+    ├── three-scene.js
+    └── world-map.js
+```
 
 ## Run Locally
 
-Use the included static server from this folder:
+Use the included static server:
 
 ```powershell
 node server.js
@@ -14,18 +45,16 @@ node server.js
 
 Then open `http://localhost:4173`.
 
-Avoid `python -m http.server` on Windows for this project. On some machines it serves `.js` files as `text/plain`, which prevents browser ES modules from starting.
-
 ## Deploy To GitHub Pages
 
-1. Push these files to a repository.
-2. Open the repository settings on GitHub.
+1. Push these files to a GitHub repository.
+2. Open the repository settings.
 3. Go to `Pages`.
-4. Select the branch and root folder.
+4. Select the branch and `/root` folder.
 5. Save.
 
-No build step is required.
+No build step is required. The site uses native ES modules and a Three.js import map, so it can be hosted directly from GitHub Pages or any static host such as Vercel.
 
-## Data Notes
+## Notes
 
-The public GitHub REST API does not expose a user's exact contribution calendar without authentication. This site uses public owner repositories plus each repository's public commits authored by `AlistairBishop06` over the last year. If commit lookups are rate-limited, repository push dates still create peaks so the portfolio remains usable.
+GitHub's unauthenticated API has rate limits. The app caches successful results in `localStorage` for 45 minutes and uses bundled fallback data if live requests fail.
