@@ -1,0 +1,18 @@
+{
+  "title": "Terrain",
+  "owner": "AlistairBishop06",
+  "deploy": "GitHub Pages",
+  "entry": "index.html",
+  "scripts": [
+    "scripts/config.js",
+    "scripts/dom-ui.js",
+    "scripts/github-api.js",
+    "scripts/contribution-heightmap.js",
+    "scripts/three-scene.js",
+    "scripts/camera-controls.js",
+    "scripts/voxel-terrain.js",
+    "scripts/terrain-picker.js",
+    "scripts/repo-panel.js",
+    "scripts/render-loop.js"
+  ]
+}
