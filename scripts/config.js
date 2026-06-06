@@ -13,7 +13,9 @@ export const CONFIG = {
     waterLevel: 0.34,
     baseNoise: 1.2,
     repoInfluence: 6.8,
-    biomeInfluence: 16
+    biomeInfluence: 14,
+    biomeColorBlend: 0.68,
+    propDensity: 1.85
   },
   camera: {
     start: { x: 35, y: 26, z: 38 },
@@ -29,9 +31,9 @@ export const BIOMES = {
     label: "Tech Forest",
     languages: ["JavaScript", "TypeScript"],
     terrain: "lush forest with glowing tech flora",
-    color: "#2f8f55",
+    color: "#1f8f4d",
     accent: "#f4d44d",
-    secondary: "#45e0a8",
+    secondary: "#073d2b",
     fog: "#10291c",
     propBias: "forest"
   },
@@ -40,9 +42,9 @@ export const BIOMES = {
     label: "Alpine Range",
     languages: ["Python"],
     terrain: "alpine mountains with pine forests and streams",
-    color: "#557b9f",
+    color: "#6f91b7",
     accent: "#dfefff",
-    secondary: "#1f5d73",
+    secondary: "#143e56",
     fog: "#c9e7ff",
     propBias: "alpine"
   },
@@ -51,9 +53,9 @@ export const BIOMES = {
     label: "Web Meadow",
     languages: ["HTML", "CSS"],
     terrain: "colourful meadow with soft hills and flowers",
-    color: "#68aa55",
+    color: "#7cbd44",
     accent: "#ff8d5e",
-    secondary: "#f7d66b",
+    secondary: "#386f35",
     fog: "#e9f6c6",
     propBias: "meadow"
   },
@@ -62,9 +64,9 @@ export const BIOMES = {
     label: "Volcanic Highlands",
     languages: ["Java"],
     terrain: "volcanic highlands with basalt and ember light",
-    color: "#5b4b43",
+    color: "#463b39",
     accent: "#ff6d3f",
-    secondary: "#2e2522",
+    secondary: "#211917",
     fog: "#4b2419",
     propBias: "volcanic"
   },
@@ -73,9 +75,9 @@ export const BIOMES = {
     label: "Canyon Lab",
     languages: ["C", "C++"],
     terrain: "desert canyon with layered stone formations",
-    color: "#a56f43",
+    color: "#bc7440",
     accent: "#e8c184",
-    secondary: "#6e3e28",
+    secondary: "#7b4025",
     fog: "#d6b17c",
     propBias: "canyon"
   },
@@ -84,9 +86,9 @@ export const BIOMES = {
     label: "Autumn Grove",
     languages: ["Rust", "Ruby"],
     terrain: "autumn forest and red rock shelves",
-    color: "#9b5d38",
+    color: "#a8562f",
     accent: "#f29a4b",
-    secondary: "#743b2d",
+    secondary: "#5f2b24",
     fog: "#c67f4f",
     propBias: "autumn"
   },
@@ -95,9 +97,9 @@ export const BIOMES = {
     label: "Coastal Plains",
     languages: ["Go", "Kotlin", "Lua"],
     terrain: "coastal grassland and clean open plains",
-    color: "#5fae8e",
+    color: "#4eaf88",
     accent: "#75d7f2",
-    secondary: "#d8e8a3",
+    secondary: "#27686b",
     fog: "#bdeaf0",
     propBias: "coast"
   },
@@ -106,9 +108,9 @@ export const BIOMES = {
     label: "Utility Tundra",
     languages: ["Shell", "PowerShell"],
     terrain: "icy utility biome with sparse shrubs",
-    color: "#a7bfd2",
+    color: "#c1d6e3",
     accent: "#f4fbff",
-    secondary: "#6b8799",
+    secondary: "#607d91",
     fog: "#e5f7ff",
     propBias: "tundra"
   },
@@ -117,9 +119,9 @@ export const BIOMES = {
     label: "Neutral Grassland",
     languages: ["Unknown", "PHP", "ASP.NET", "C#"],
     terrain: "neutral grassland with rocks and low shrubs",
-    color: "#6f8f55",
+    color: "#719355",
     accent: "#ddd6a1",
-    secondary: "#485d3f",
+    secondary: "#3f5940",
     fog: "#c8d5ae",
     propBias: "neutral"
   }

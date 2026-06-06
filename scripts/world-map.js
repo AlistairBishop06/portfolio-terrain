@@ -12,6 +12,7 @@ export function createWorldMap(scene, landscape) {
   group.add(createTerrainMesh(landscape));
   group.add(createWaterPlane(landscape));
   addWaterDetails(group, landscape);
+  addBiomeFloorDressing(group, landscape);
   addBiomeProps(group, landscape);
   addRepositoryFlags(group, landscape, pickables, animated);
   addAtmosphere(group, landscape, animated);
@@ -221,11 +222,11 @@ function createFlagTexture(repo) {
 
 function addBiomeProps(group, landscape) {
   landscape.repos.forEach((repo) => {
-    const count = Math.round(4 + repo.normalizedCommit * 13);
+    const count = Math.round((10 + repo.normalizedCommit * 24) * CONFIG.terrain.propDensity);
     for (let index = 0; index < count; index += 1) {
       const seed = randomFromString(`${repo.fullName}:prop:${index}`);
       const angle = seed * Math.PI * 2 + index * 1.71;
-      const radius = 1.8 + randomFromString(`${repo.name}:radius:${index}`) * (4.2 + repo.normalizedCommit * 5.5);
+      const radius = 1.35 + randomFromString(`${repo.name}:radius:${index}`) * (5.8 + repo.normalizedCommit * 7.2);
       const x = repo.x + Math.cos(angle) * radius;
       const z = repo.z + Math.sin(angle) * radius;
       const sample = landscape.sample(x, z);
@@ -234,11 +235,11 @@ function addBiomeProps(group, landscape) {
       const prop = createProp(repo.biome.propBias, seed, repo.normalizedCommit);
       prop.position.set(x, sample.height, z);
       prop.rotation.y = angle;
-      prop.scale.setScalar(0.72 + seed * 0.52 + repo.normalizedCommit * 0.36);
+      prop.scale.setScalar(0.56 + seed * 0.54 + repo.normalizedCommit * 0.42);
       group.add(prop);
     }
 
-    if (repo.index % 6 === 0) {
+    if (repo.index % 4 === 0) {
       const fauna = createFauna(repo.biome.accent);
       const x = repo.x + 2.4;
       const z = repo.z - 1.6;
@@ -247,6 +248,59 @@ function addBiomeProps(group, landscape) {
       group.add(fauna);
     }
   });
+}
+
+function addBiomeFloorDressing(group, landscape) {
+  landscape.groups.forEach((biomeGroup) => {
+    const count = Math.round((34 + biomeGroup.repos.length * 12) * CONFIG.terrain.propDensity);
+
+    for (let index = 0; index < count; index += 1) {
+      const seed = randomFromString(`${biomeGroup.key}:floor:${index}`);
+      const radiusSeed = randomFromString(`${biomeGroup.key}:floor-radius:${index}`);
+      const angle = biomeGroup.angle + seed * Math.PI * 2 + index * 0.77;
+      const radius = Math.sqrt(radiusSeed) * (biomeGroup.radius * 1.75 + 5);
+      const x = biomeGroup.x + Math.cos(angle) * radius;
+      const z = biomeGroup.z + Math.sin(angle) * radius;
+      const sample = landscape.sample(x, z);
+      if (sample.height < landscape.world.waterLevel + 0.04) continue;
+      if (sample.dominantBiome.key !== biomeGroup.key && seed > 0.3) continue;
+
+      const detail = createFloorDetail(biomeGroup.biome, seed, index);
+      detail.position.set(x, sample.height + 0.025, z);
+      detail.rotation.y = angle;
+      detail.scale.setScalar(0.45 + seed * 0.72);
+      group.add(detail);
+    }
+  });
+}
+
+function createFloorDetail(biome, seed, index) {
+  if (biome.key === "techForest") {
+    return seed > 0.72 ? createGlowFlora() : createGrassTuft(0x34b86c);
+  }
+  if (biome.key === "alpine") {
+    if (seed > 0.72) return createSnowPatch();
+    return seed > 0.42 ? createRock(0xbecbd2) : createGrassTuft(0x3f6955);
+  }
+  if (biome.key === "meadow") {
+    return seed > 0.2 ? createFlower((seed + index * 0.13) % 1) : createGrassTuft(0xb7d95a);
+  }
+  if (biome.key === "volcanic") {
+    return seed > 0.58 ? createLavaCrack() : createRock(0x2b2623, seed > 0.82 ? 0xff6d3f : null);
+  }
+  if (biome.key === "canyon") {
+    return seed > 0.55 ? createSandRipple() : createRock(0xb67645);
+  }
+  if (biome.key === "autumn") {
+    return seed > 0.45 ? createLeafPatch() : createShrub(0x9d5934);
+  }
+  if (biome.key === "coast") {
+    return seed > 0.5 ? createGrassTuft(0x8dcf7a) : createShellStone();
+  }
+  if (biome.key === "tundra") {
+    return seed > 0.55 ? createCrystal() : createSnowPatch();
+  }
+  return seed > 0.5 ? createShrub(0x6f8f55) : createGrassTuft(0x9fb66a);
 }
 
 function createProp(bias, seed, activity) {
@@ -371,6 +425,85 @@ function createGrassTuft(color) {
     tuft.add(blade);
   }
   return tuft;
+}
+
+function createSnowPatch() {
+  const patch = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xeaf7ff,
+    roughness: 0.64,
+    metalness: 0.02
+  });
+  const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.42, 14), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.scale.set(1.35, 0.82, 1);
+  patch.add(mesh);
+  return patch;
+}
+
+function createLavaCrack() {
+  const crack = new THREE.Group();
+  const glow = new THREE.Mesh(
+    new THREE.BoxGeometry(0.86, 0.025, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: 0xff6d3f,
+      emissive: 0xff3b17,
+      emissiveIntensity: 1.15,
+      roughness: 0.38
+    })
+  );
+  glow.position.y = 0.015;
+  crack.add(glow);
+
+  const crust = new THREE.Mesh(
+    new THREE.BoxGeometry(0.94, 0.03, 0.025),
+    new THREE.MeshStandardMaterial({ color: 0x1d1716, roughness: 0.92 })
+  );
+  crust.position.set(0, 0.038, 0.07);
+  crack.add(crust);
+  return crack;
+}
+
+function createSandRipple() {
+  const ripple = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: 0xd69a5b, roughness: 0.88 });
+  for (let index = 0; index < 3; index += 1) {
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.72 - index * 0.08, 0.035, 0.055), material);
+    ridge.position.set(0, 0.02, (index - 1) * 0.18);
+    ridge.rotation.y = (index - 1) * 0.12;
+    ridge.castShadow = true;
+    ripple.add(ridge);
+  }
+  return ripple;
+}
+
+function createLeafPatch() {
+  const leaves = new THREE.Group();
+  const colors = [0xc95f2e, 0xe59438, 0x9f3f2f, 0xd6a24c];
+  for (let index = 0; index < 5; index += 1) {
+    const leaf = new THREE.Mesh(
+      new THREE.CircleGeometry(0.08 + index * 0.006, 8),
+      new THREE.MeshStandardMaterial({ color: colors[index % colors.length], roughness: 0.82 })
+    );
+    leaf.rotation.x = -Math.PI / 2;
+    leaf.rotation.z = index * 0.9;
+    leaf.position.set(Math.cos(index * 1.7) * 0.22, 0.01 + index * 0.003, Math.sin(index * 1.7) * 0.16);
+    leaf.scale.set(1.5, 0.62, 1);
+    leaves.add(leaf);
+  }
+  return leaves;
+}
+
+function createShellStone() {
+  const shell = new THREE.Group();
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18, 10, 6),
+    new THREE.MeshStandardMaterial({ color: 0xe7ddbd, roughness: 0.72 })
+  );
+  mesh.scale.set(1.45, 0.36, 0.78);
+  mesh.position.y = 0.08;
+  shell.add(mesh);
+  return shell;
 }
 
 function createCactus() {

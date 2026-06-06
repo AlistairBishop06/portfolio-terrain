@@ -85,7 +85,7 @@ function placeBiomeGroups(groups) {
 
     // High-activity language groups are pulled toward the map's centre; quieter
     // groups sit toward the edge, which makes lower-commit repos read as flatter outskirts.
-    const radius = mix(size * 0.08, size * 0.38, ring) * mix(1, 0.45, importance);
+    const radius = mix(size * 0.15, size * 0.42, ring) * mix(1, 0.72, importance);
 
     return {
       ...group,
@@ -202,15 +202,16 @@ function createTerrainSampler(repos, groups) {
 function sampleBiomeColor(x, z, height, repos, groups) {
   const color = [0, 0, 0];
   let total = 0;
+  const dominantBiome = sampleDominantBiome(x, z, repos, groups);
 
   groups.forEach((group) => {
-    const weight = gaussian(distance(x, z, group.x, group.z), CONFIG.terrain.biomeInfluence + group.radius) * 0.8;
+    const weight = gaussian(distance(x, z, group.x, group.z), (CONFIG.terrain.biomeInfluence + group.radius) * 0.56) * 1.25;
     addWeightedColor(color, group.biome.color, weight);
     total += weight;
   });
 
   repos.forEach((repo) => {
-    const weight = gaussian(distance(x, z, repo.x, repo.z), repo.influence * 1.8) * (0.6 + repo.normalizedCommit);
+    const weight = gaussian(distance(x, z, repo.x, repo.z), repo.influence * 1.25) * (0.9 + repo.normalizedCommit * 1.1);
     addWeightedColor(color, repo.biome.color, weight);
     total += weight;
   });
@@ -224,9 +225,29 @@ function sampleBiomeColor(x, z, height, repos, groups) {
   color[1] /= total;
   color[2] /= total;
 
+  const dominantColor = hexToRgb01(dominantBiome.color);
+  const detailColor = hexToRgb01(dominantBiome.secondary);
+  const accentColor = hexToRgb01(dominantBiome.accent);
+  const terrainGrain = fbm(x * 0.19 + 9, z * 0.19 - 3, 3);
+  const accentVein = smoothstep(0.68, 0.94, fbm(x * 0.41 - 17, z * 0.41 + 12, 2));
+  const blend = CONFIG.terrain.biomeColorBlend;
+
+  color[0] = mix(color[0], dominantColor[0], blend);
+  color[1] = mix(color[1], dominantColor[1], blend);
+  color[2] = mix(color[2], dominantColor[2], blend);
+
+  color[0] = mix(color[0], detailColor[0], terrainGrain * 0.18);
+  color[1] = mix(color[1], detailColor[1], terrainGrain * 0.18);
+  color[2] = mix(color[2], detailColor[2], terrainGrain * 0.18);
+
+  color[0] = mix(color[0], accentColor[0], accentVein * 0.08);
+  color[1] = mix(color[1], accentColor[1], accentVein * 0.08);
+  color[2] = mix(color[2], accentColor[2], accentVein * 0.08);
+
   const light = clamp(height / CONFIG.terrain.maxHeight, 0, 1);
-  const snow = smoothstep(0.73, 0.94, light);
-  const shadow = mix(0.72, 1.18, light);
+  const snowBiome = dominantBiome.key === "alpine" || dominantBiome.key === "tundra";
+  const snow = snowBiome ? smoothstep(0.7, 0.94, light) : 0;
+  const shadow = mix(0.78, 1.16, light);
 
   color[0] = mix(color[0] * shadow, 0.92, snow * 0.48);
   color[1] = mix(color[1] * shadow, 0.96, snow * 0.48);
