@@ -8,6 +8,9 @@ export function createCameraControls(camera, canvas) {
   const keys = new Set();
   const pointer = { active: false, x: 0, y: 0 };
   const bounds = CONFIG.terrain.size * 0.42;
+  const forwardVector = new THREE.Vector3();
+  const sideVector = new THREE.Vector3();
+  const desiredPosition = new THREE.Vector3();
 
   window.addEventListener("keydown", (event) => keys.add(event.key.toLowerCase()));
   window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
@@ -56,8 +59,8 @@ export function createCameraControls(camera, canvas) {
       const side = Number(keys.has("d") || keys.has("arrowright")) - Number(keys.has("a") || keys.has("arrowleft"));
 
       const angle = spherical.theta;
-      const forwardVector = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
-      const sideVector = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+      forwardVector.set(Math.sin(angle), 0, Math.cos(angle));
+      sideVector.set(Math.cos(angle), 0, -Math.sin(angle));
 
       desiredTarget.addScaledVector(forwardVector, -forward * speed);
       desiredTarget.addScaledVector(sideVector, side * speed);
@@ -65,7 +68,7 @@ export function createCameraControls(camera, canvas) {
       desiredTarget.z = clamp(desiredTarget.z, -bounds, bounds);
 
       target.lerp(desiredTarget, 0.12);
-      const desiredPosition = new THREE.Vector3().setFromSpherical(spherical).add(target);
+      desiredPosition.setFromSpherical(spherical).add(target);
       camera.position.lerp(desiredPosition, 0.14);
       camera.lookAt(target);
     }

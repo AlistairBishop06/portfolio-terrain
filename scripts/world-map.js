@@ -1,24 +1,38 @@
 import * as THREE from "three";
 import { CONFIG, languageIcon } from "./config.js";
 
+const geometryCache = new Map();
+const materialCache = new Map();
+
 export function createWorldMap(scene, landscape) {
+  geometryCache.clear();
+  materialCache.clear();
+
   const group = new THREE.Group();
   group.name = "github-repository-landscape";
   scene.add(group);
 
   const animated = [];
   const pickables = [];
+  const staticDetails = new THREE.Group();
+  staticDetails.name = "instanced-biome-details";
 
   group.add(createTerrainMesh(landscape));
   group.add(createWaterPlane(landscape));
   addWaterDetails(group, landscape);
-  addBiomeFloorDressing(group, landscape);
-  addBiomeProps(group, landscape);
+  addBiomeFloorDressing(staticDetails, landscape);
+  addBiomeProps(staticDetails, landscape);
+  batchStaticMeshes(staticDetails);
+  group.add(staticDetails);
   addRepositoryFlags(group, landscape, pickables, animated);
   addAtmosphere(group, landscape, animated);
 
   return {
     pickables,
+    performance: {
+      detailSourceMeshes: staticDetails.userData.sourceMeshCount,
+      detailDrawBatches: staticDetails.userData.drawBatches
+    },
     update(elapsed, camera) {
       animated.forEach((item) => item(elapsed, camera));
       group.rotation.y = Math.sin(elapsed * 0.05) * 0.012;
@@ -118,6 +132,8 @@ function addWaterDetails(group, landscape) {
 }
 
 function addRepositoryFlags(group, landscape, pickables, animated) {
+  const markerEntries = [];
+
   landscape.repos.forEach((repo, index) => {
     const landmark = new THREE.Group();
     const baseY = repo.height + 0.1;
@@ -126,18 +142,8 @@ function addRepositoryFlags(group, landscape, pickables, animated) {
     landmark.position.set(repo.x, baseY, repo.z);
     landmark.userData.repo = repo;
 
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035 * scale, 0.055 * scale, 2.4 * scale, 10),
-      new THREE.MeshStandardMaterial({ color: 0xf4ead0, roughness: 0.56, metalness: 0.25 })
-    );
-    pole.position.y = 1.18 * scale;
-    pole.castShadow = true;
-    pole.userData.repo = repo;
-    landmark.add(pole);
-    pickables.push(pole);
-
     const flag = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.25 * scale, 0.82 * scale, 10, 2),
+      sharedGeometry(`flag:${scale}`, () => new THREE.PlaneGeometry(1.25 * scale, 0.82 * scale)),
       new THREE.MeshBasicMaterial({
         map: createFlagTexture(repo),
         transparent: true,
@@ -150,32 +156,122 @@ function addRepositoryFlags(group, landscape, pickables, animated) {
     landmark.add(flag);
     pickables.push(flag);
 
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.32 * scale, 0.46 * scale, 0.18 * scale, 18),
-      new THREE.MeshStandardMaterial({
-        color: repo.biome.accent,
-        emissive: repo.biome.accent,
+    group.add(landmark);
+    markerEntries.push({ repo, index, baseY, scale, landmark, flag });
+  });
+
+  const poleInstances = createMarkerInstances({
+    entries: markerEntries,
+    geometry: sharedGeometry("flag-pole", () => new THREE.CylinderGeometry(0.035, 0.055, 2.4, 8)),
+    material: sharedStandardMaterial("flag-pole", {
+      color: 0xf4ead0,
+      roughness: 0.56,
+      metalness: 0.25
+    }),
+    yOffset: 1.18,
+    castShadow: true,
+    receiveShadow: false
+  });
+  poleInstances.name = "repository-flag-poles";
+  group.add(poleInstances);
+  pickables.push(poleInstances);
+
+  const baseInstances = new Map();
+  landscape.groups.forEach((biomeGroup) => {
+    const entries = markerEntries.filter((entry) => entry.repo.biomeKey === biomeGroup.key);
+    if (!entries.length) return;
+
+    const instances = createMarkerInstances({
+      entries,
+      geometry: sharedGeometry("flag-base", () => new THREE.CylinderGeometry(0.32, 0.46, 0.18, 12)),
+      material: sharedStandardMaterial(`flag-base:${biomeGroup.biome.accent}`, {
+        color: biomeGroup.biome.accent,
+        emissive: biomeGroup.biome.accent,
         emissiveIntensity: 0.05,
         roughness: 0.72
-      })
-    );
-    base.position.y = 0.05 * scale;
-    base.castShadow = true;
-    base.receiveShadow = true;
-    base.userData.repo = repo;
-    landmark.add(base);
-    pickables.push(base);
+      }),
+      yOffset: 0.05,
+      castShadow: true,
+      receiveShadow: true
+    });
+    instances.name = `repository-flag-bases-${biomeGroup.key}`;
+    baseInstances.set(biomeGroup.key, instances);
+    group.add(instances);
+    pickables.push(instances);
+  });
 
-    group.add(landmark);
+  const markerMatrix = new THREE.Matrix4();
+  const markerPosition = new THREE.Vector3();
+  const markerScale = new THREE.Vector3();
+  const markerRotation = new THREE.Quaternion();
 
-    animated.push((elapsed, camera) => {
-      landmark.position.y = baseY + Math.sin(elapsed * 1.4 + index) * 0.035;
+  animated.push((elapsed, camera) => {
+    markerEntries.forEach((entry, instanceIndex) => {
+      const bob = Math.sin(elapsed * 1.4 + entry.index) * 0.035;
+      entry.landmark.position.y = entry.baseY + bob;
       if (camera) {
-        landmark.lookAt(camera.position.x, landmark.position.y, camera.position.z);
+        entry.landmark.lookAt(camera.position.x, entry.landmark.position.y, camera.position.z);
       }
-      flag.rotation.z = Math.sin(elapsed * 2.2 + index * 0.7) * 0.035;
+      entry.flag.rotation.z = Math.sin(elapsed * 2.2 + entry.index * 0.7) * 0.035;
+
+      markerPosition.set(
+        entry.repo.x,
+        entry.baseY + bob + 1.18 * entry.scale,
+        entry.repo.z
+      );
+      markerScale.setScalar(entry.scale);
+      markerMatrix.compose(markerPosition, markerRotation, markerScale);
+      poleInstances.setMatrixAt(instanceIndex, markerMatrix);
+    });
+    poleInstances.instanceMatrix.needsUpdate = true;
+
+    baseInstances.forEach((instances) => {
+      instances.userData.entries.forEach((entry, instanceIndex) => {
+        const bob = Math.sin(elapsed * 1.4 + entry.index) * 0.035;
+        markerPosition.set(
+          entry.repo.x,
+          entry.baseY + bob + 0.05 * entry.scale,
+          entry.repo.z
+        );
+        markerScale.setScalar(entry.scale);
+        markerMatrix.compose(markerPosition, markerRotation, markerScale);
+        instances.setMatrixAt(instanceIndex, markerMatrix);
+      });
+      instances.instanceMatrix.needsUpdate = true;
     });
   });
+}
+
+function createMarkerInstances({
+  entries,
+  geometry,
+  material,
+  yOffset,
+  castShadow,
+  receiveShadow
+}) {
+  const instances = new THREE.InstancedMesh(geometry, material, entries.length);
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+
+  entries.forEach((entry, index) => {
+    position.set(entry.repo.x, entry.baseY + yOffset * entry.scale, entry.repo.z);
+    scale.setScalar(entry.scale);
+    matrix.compose(position, rotation, scale);
+    instances.setMatrixAt(index, matrix);
+  });
+
+  instances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  instances.instanceMatrix.needsUpdate = true;
+  instances.castShadow = castShadow;
+  instances.receiveShadow = receiveShadow;
+  instances.userData.entries = entries;
+  instances.userData.repos = entries.map((entry) => entry.repo);
+  instances.computeBoundingBox();
+  instances.computeBoundingSphere();
+  return instances;
 }
 
 function createFlagTexture(repo) {
@@ -318,16 +414,16 @@ function createProp(bias, seed, activity) {
 function createTree(leafColor, accentColor, activity = 0.4) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.08, 0.12, 0.72, 8),
-    new THREE.MeshStandardMaterial({ color: 0x69452c, roughness: 0.82 })
+    sharedGeometry("tree-trunk", () => new THREE.CylinderGeometry(0.08, 0.12, 0.72, 8)),
+    sharedStandardMaterial("tree-trunk", { color: 0x69452c, roughness: 0.82 })
   );
   trunk.position.y = 0.36;
   trunk.castShadow = true;
   tree.add(trunk);
 
   const crown = new THREE.Mesh(
-    new THREE.SphereGeometry(0.42, 12, 10),
-    new THREE.MeshStandardMaterial({
+    sharedGeometry("tree-crown", () => new THREE.SphereGeometry(0.42, 10, 8)),
+    sharedStandardMaterial(`tree-crown:${leafColor}:${accentColor}:${Math.round(activity * 5)}`, {
       color: leafColor,
       roughness: 0.78,
       emissive: accentColor,
@@ -343,8 +439,8 @@ function createTree(leafColor, accentColor, activity = 0.4) {
 function createPine(leafColor, trunkColor) {
   const pine = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.055, 0.085, 0.78, 7),
-    new THREE.MeshStandardMaterial({ color: trunkColor, roughness: 0.84 })
+    sharedGeometry("pine-trunk", () => new THREE.CylinderGeometry(0.055, 0.085, 0.78, 7)),
+    sharedStandardMaterial(`pine-trunk:${trunkColor}`, { color: trunkColor, roughness: 0.84 })
   );
   trunk.position.y = 0.38;
   trunk.castShadow = true;
@@ -352,8 +448,8 @@ function createPine(leafColor, trunkColor) {
 
   for (let level = 0; level < 3; level += 1) {
     const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(0.42 - level * 0.08, 0.72, 10),
-      new THREE.MeshStandardMaterial({ color: leafColor, roughness: 0.8 })
+      sharedGeometry(`pine-cone:${level}`, () => new THREE.ConeGeometry(0.42 - level * 0.08, 0.72, 8)),
+      sharedStandardMaterial(`pine-leaves:${leafColor}`, { color: leafColor, roughness: 0.8 })
     );
     cone.position.y = 0.78 + level * 0.34;
     cone.castShadow = true;
@@ -364,13 +460,16 @@ function createPine(leafColor, trunkColor) {
 
 function createRock(color, glowColor = null) {
   const rock = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({
+  const material = sharedStandardMaterial(`rock:${color}:${glowColor || 0}`, {
     color,
     emissive: glowColor || 0x000000,
     emissiveIntensity: glowColor ? 0.18 : 0,
     roughness: 0.92
   });
-  const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.34, 0), material);
+  const mesh = new THREE.Mesh(
+    sharedGeometry("rock", () => new THREE.DodecahedronGeometry(0.34, 0)),
+    material
+  );
   mesh.scale.set(1.2, 0.62, 0.86);
   mesh.position.y = 0.22;
   mesh.castShadow = true;
@@ -382,16 +481,18 @@ function createRock(color, glowColor = null) {
 function createFlower(seed) {
   const flower = new THREE.Group();
   const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.018, 0.018, 0.35, 5),
-    new THREE.MeshStandardMaterial({ color: 0x3b7f41, roughness: 0.72 })
+    sharedGeometry("flower-stem", () => new THREE.CylinderGeometry(0.018, 0.018, 0.35, 5)),
+    sharedStandardMaterial("flower-stem", { color: 0x3b7f41, roughness: 0.72 })
   );
   stem.position.y = 0.18;
   flower.add(stem);
 
+  const hueStep = Math.round(seed * 11) % 12;
+  const petalColor = new THREE.Color().setHSL(hueStep / 12, 0.72, 0.62);
   const petals = new THREE.Mesh(
-    new THREE.SphereGeometry(0.12, 8, 6),
-    new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(seed, 0.72, 0.62),
+    sharedGeometry("flower-petals", () => new THREE.SphereGeometry(0.12, 8, 6)),
+    sharedStandardMaterial(`flower-petals:${hueStep}`, {
+      color: petalColor,
       emissive: 0x201000,
       emissiveIntensity: 0.08,
       roughness: 0.6
@@ -405,9 +506,12 @@ function createFlower(seed) {
 
 function createShrub(color) {
   const shrub = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.86 });
+  const material = sharedStandardMaterial(`shrub:${color}`, { color, roughness: 0.86 });
   for (let index = 0; index < 3; index += 1) {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), material);
+    const mesh = new THREE.Mesh(
+      sharedGeometry("shrub-lobe", () => new THREE.SphereGeometry(0.18, 8, 6)),
+      material
+    );
     mesh.position.set((index - 1) * 0.16, 0.13 + index * 0.035, Math.sin(index) * 0.08);
     mesh.castShadow = true;
     shrub.add(mesh);
@@ -417,9 +521,12 @@ function createShrub(color) {
 
 function createGrassTuft(color) {
   const tuft = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+  const material = sharedStandardMaterial(`grass:${color}`, { color, roughness: 0.9 });
   for (let index = 0; index < 5; index += 1) {
-    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.34, 5), material);
+    const blade = new THREE.Mesh(
+      sharedGeometry("grass-blade", () => new THREE.ConeGeometry(0.035, 0.34, 5)),
+      material
+    );
     blade.position.set((index - 2) * 0.055, 0.17, Math.sin(index * 2) * 0.04);
     blade.rotation.z = (index - 2) * 0.14;
     tuft.add(blade);
@@ -429,12 +536,15 @@ function createGrassTuft(color) {
 
 function createSnowPatch() {
   const patch = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({
+  const material = sharedStandardMaterial("snow-patch", {
     color: 0xeaf7ff,
     roughness: 0.64,
     metalness: 0.02
   });
-  const mesh = new THREE.Mesh(new THREE.CircleGeometry(0.42, 14), material);
+  const mesh = new THREE.Mesh(
+    sharedGeometry("snow-patch", () => new THREE.CircleGeometry(0.42, 12)),
+    material
+  );
   mesh.rotation.x = -Math.PI / 2;
   mesh.scale.set(1.35, 0.82, 1);
   patch.add(mesh);
@@ -444,8 +554,8 @@ function createSnowPatch() {
 function createLavaCrack() {
   const crack = new THREE.Group();
   const glow = new THREE.Mesh(
-    new THREE.BoxGeometry(0.86, 0.025, 0.08),
-    new THREE.MeshStandardMaterial({
+    sharedGeometry("lava-glow", () => new THREE.BoxGeometry(0.86, 0.025, 0.08)),
+    sharedStandardMaterial("lava-glow", {
       color: 0xff6d3f,
       emissive: 0xff3b17,
       emissiveIntensity: 1.15,
@@ -456,8 +566,8 @@ function createLavaCrack() {
   crack.add(glow);
 
   const crust = new THREE.Mesh(
-    new THREE.BoxGeometry(0.94, 0.03, 0.025),
-    new THREE.MeshStandardMaterial({ color: 0x1d1716, roughness: 0.92 })
+    sharedGeometry("lava-crust", () => new THREE.BoxGeometry(0.94, 0.03, 0.025)),
+    sharedStandardMaterial("lava-crust", { color: 0x1d1716, roughness: 0.92 })
   );
   crust.position.set(0, 0.038, 0.07);
   crack.add(crust);
@@ -466,9 +576,12 @@ function createLavaCrack() {
 
 function createSandRipple() {
   const ripple = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: 0xd69a5b, roughness: 0.88 });
+  const material = sharedStandardMaterial("sand-ripple", { color: 0xd69a5b, roughness: 0.88 });
   for (let index = 0; index < 3; index += 1) {
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.72 - index * 0.08, 0.035, 0.055), material);
+    const ridge = new THREE.Mesh(
+      sharedGeometry(`sand-ripple:${index}`, () => new THREE.BoxGeometry(0.72 - index * 0.08, 0.035, 0.055)),
+      material
+    );
     ridge.position.set(0, 0.02, (index - 1) * 0.18);
     ridge.rotation.y = (index - 1) * 0.12;
     ridge.castShadow = true;
@@ -482,8 +595,11 @@ function createLeafPatch() {
   const colors = [0xc95f2e, 0xe59438, 0x9f3f2f, 0xd6a24c];
   for (let index = 0; index < 5; index += 1) {
     const leaf = new THREE.Mesh(
-      new THREE.CircleGeometry(0.08 + index * 0.006, 8),
-      new THREE.MeshStandardMaterial({ color: colors[index % colors.length], roughness: 0.82 })
+      sharedGeometry(`leaf:${index}`, () => new THREE.CircleGeometry(0.08 + index * 0.006, 8)),
+      sharedStandardMaterial(`leaf:${colors[index % colors.length]}`, {
+        color: colors[index % colors.length],
+        roughness: 0.82
+      })
     );
     leaf.rotation.x = -Math.PI / 2;
     leaf.rotation.z = index * 0.9;
@@ -497,8 +613,8 @@ function createLeafPatch() {
 function createShellStone() {
   const shell = new THREE.Group();
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 10, 6),
-    new THREE.MeshStandardMaterial({ color: 0xe7ddbd, roughness: 0.72 })
+    sharedGeometry("shell-stone", () => new THREE.SphereGeometry(0.18, 10, 6)),
+    sharedStandardMaterial("shell-stone", { color: 0xe7ddbd, roughness: 0.72 })
   );
   mesh.scale.set(1.45, 0.36, 0.78);
   mesh.position.y = 0.08;
@@ -508,12 +624,18 @@ function createShellStone() {
 
 function createCactus() {
   const cactus = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: 0x5f8b54, roughness: 0.84 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.8, 8), material);
+  const material = sharedStandardMaterial("cactus", { color: 0x5f8b54, roughness: 0.84 });
+  const body = new THREE.Mesh(
+    sharedGeometry("cactus-body", () => new THREE.CylinderGeometry(0.12, 0.15, 0.8, 8)),
+    material
+  );
   body.position.y = 0.4;
   body.castShadow = true;
   cactus.add(body);
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.38, 7), material);
+  const arm = new THREE.Mesh(
+    sharedGeometry("cactus-arm", () => new THREE.CylinderGeometry(0.045, 0.055, 0.38, 7)),
+    material
+  );
   arm.position.set(0.16, 0.52, 0);
   arm.rotation.z = Math.PI / 2.6;
   cactus.add(arm);
@@ -523,8 +645,8 @@ function createCactus() {
 function createCrystal() {
   const crystal = new THREE.Group();
   const mesh = new THREE.Mesh(
-    new THREE.ConeGeometry(0.16, 0.62, 5),
-    new THREE.MeshStandardMaterial({
+    sharedGeometry("crystal", () => new THREE.ConeGeometry(0.16, 0.62, 5)),
+    sharedStandardMaterial("crystal", {
       color: 0xdff6ff,
       emissive: 0x8cdfff,
       emissiveIntensity: 0.18,
@@ -541,14 +663,14 @@ function createCrystal() {
 function createGlowFlora() {
   const flora = new THREE.Group();
   const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.018, 0.022, 0.34, 6),
-    new THREE.MeshStandardMaterial({ color: 0x204d36, roughness: 0.72 })
+    sharedGeometry("glow-flora-stem", () => new THREE.CylinderGeometry(0.018, 0.022, 0.34, 6)),
+    sharedStandardMaterial("glow-flora-stem", { color: 0x204d36, roughness: 0.72 })
   );
   stem.position.y = 0.17;
   flora.add(stem);
   const orb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 12, 8),
-    new THREE.MeshStandardMaterial({
+    sharedGeometry("glow-flora-orb", () => new THREE.SphereGeometry(0.09, 10, 8)),
+    sharedStandardMaterial("glow-flora-orb", {
       color: 0x7dffd0,
       emissive: 0x45e0a8,
       emissiveIntensity: 0.85,
@@ -562,12 +684,18 @@ function createGlowFlora() {
 
 function createFauna(color) {
   const fauna = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.72 });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), material);
+  const material = sharedStandardMaterial(`fauna:${color}`, { color, roughness: 0.72 });
+  const body = new THREE.Mesh(
+    sharedGeometry("fauna-body", () => new THREE.SphereGeometry(0.18, 10, 8)),
+    material
+  );
   body.scale.set(1.45, 0.72, 0.85);
   body.position.y = 0.22;
   fauna.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), material);
+  const head = new THREE.Mesh(
+    sharedGeometry("fauna-head", () => new THREE.SphereGeometry(0.09, 8, 6)),
+    material
+  );
   head.position.set(0.24, 0.28, 0.04);
   fauna.add(head);
   return fauna;
@@ -627,6 +755,85 @@ function addAtmosphere(group, landscape, animated) {
     });
     particles.rotation.y = elapsed * 0.015;
   });
+}
+
+function batchStaticMeshes(root) {
+  root.updateMatrixWorld(true);
+
+  const inverseRootMatrix = root.matrixWorld.clone().invert();
+  const instanceMatrix = new THREE.Matrix4();
+  const buckets = new Map();
+  let sourceMeshCount = 0;
+
+  root.traverse((child) => {
+    if (!child.isMesh || Array.isArray(child.material)) return;
+
+    sourceMeshCount += 1;
+    const key = [
+      child.geometry.uuid,
+      child.material.uuid,
+      child.castShadow ? 1 : 0,
+      child.receiveShadow ? 1 : 0,
+      child.renderOrder
+    ].join(":");
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        geometry: child.geometry,
+        material: child.material,
+        castShadow: child.castShadow,
+        receiveShadow: child.receiveShadow,
+        renderOrder: child.renderOrder,
+        matrices: []
+      };
+      buckets.set(key, bucket);
+    }
+
+    instanceMatrix.multiplyMatrices(inverseRootMatrix, child.matrixWorld);
+    bucket.matrices.push(instanceMatrix.clone());
+  });
+
+  root.clear();
+
+  buckets.forEach((bucket) => {
+    const instances = new THREE.InstancedMesh(
+      bucket.geometry,
+      bucket.material,
+      bucket.matrices.length
+    );
+
+    bucket.matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix));
+    instances.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    instances.instanceMatrix.needsUpdate = true;
+    instances.castShadow = bucket.castShadow;
+    instances.receiveShadow = bucket.receiveShadow;
+    instances.renderOrder = bucket.renderOrder;
+    instances.computeBoundingBox();
+    instances.computeBoundingSphere();
+    root.add(instances);
+  });
+
+  root.userData.sourceMeshCount = sourceMeshCount;
+  root.userData.drawBatches = buckets.size;
+}
+
+function sharedGeometry(key, factory) {
+  let geometry = geometryCache.get(key);
+  if (!geometry) {
+    geometry = factory();
+    geometryCache.set(key, geometry);
+  }
+  return geometry;
+}
+
+function sharedStandardMaterial(key, options) {
+  let material = materialCache.get(key);
+  if (!material) {
+    material = new THREE.MeshStandardMaterial(options);
+    materialCache.set(key, material);
+  }
+  return material;
 }
 
 function roundedRect(context, x, y, width, height, radius, fillStyle) {

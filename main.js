@@ -31,6 +31,7 @@ async function boot({ forceRefresh = false } = {}) {
     updateStats(dom, landscape.summary);
     picker.setTargets(activeWorld.pickables);
     showRepoPanel(dom, landscape.summary.featuredRepo);
+    publishLocalMetrics();
     setLoading(dom, false);
   } catch (error) {
     console.error(error);
@@ -56,3 +57,14 @@ startRenderLoop({
 });
 
 boot();
+
+function publishLocalMetrics() {
+  if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) return;
+
+  window.__terrainMetrics = () => ({
+    ...activeWorld?.performance,
+    drawCalls: sceneKit.renderer.info.render.calls,
+    triangles: sceneKit.renderer.info.render.triangles,
+    pixelRatio: sceneKit.renderer.getPixelRatio()
+  });
+}

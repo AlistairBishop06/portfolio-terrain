@@ -6,13 +6,16 @@ export function createThreeScene(canvas) {
     canvas,
     antialias: true,
     alpha: true,
-    powerPreference: "high-performance"
+    powerPreference: "high-performance",
+    precision: "highp"
   });
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  const maxPixelRatio = navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4 ? 1.15 : 1.4;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.04;
@@ -31,7 +34,7 @@ export function createThreeScene(canvas) {
   const sun = new THREE.DirectionalLight(0xffd39b, 3.7);
   sun.position.set(-28, 36, 24);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.near = 0.5;
   sun.shadow.camera.far = 120;
   sun.shadow.camera.left = -58;
@@ -54,5 +57,5 @@ export function createThreeScene(canvas) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { renderer, scene, camera };
+  return { renderer, scene, camera, maxPixelRatio };
 }

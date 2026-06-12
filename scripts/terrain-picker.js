@@ -7,15 +7,21 @@ export function createTerrainPicker(camera, canvas) {
   let hovered = null;
   let onSelectCallback = () => {};
   let onHoverCallback = () => {};
+  let pointerInside = false;
+  let pointerDirty = false;
+  let pointerPosition = null;
+  let lastPickAt = 0;
 
   canvas.addEventListener("pointermove", (event) => {
     updatePointer(event, canvas, pointer);
-    hovered = pick(raycaster, camera, pointer, targets);
-    canvas.style.cursor = hovered ? "pointer" : "grab";
-    onHoverCallback(hovered?.repo ?? null, { x: event.clientX, y: event.clientY });
+    pointerInside = true;
+    pointerDirty = true;
+    pointerPosition = { x: event.clientX, y: event.clientY };
   });
 
   canvas.addEventListener("pointerleave", () => {
+    pointerInside = false;
+    pointerDirty = false;
     hovered = null;
     canvas.style.cursor = "grab";
     onHoverCallback(null);
@@ -37,8 +43,15 @@ export function createTerrainPicker(camera, canvas) {
     onHover(nextCallback) {
       onHoverCallback = nextCallback;
     },
-    update() {
+    update(now = performance.now()) {
+      if (!pointerInside) return;
+      if (!pointerDirty && now - lastPickAt < 50) return;
+
       hovered = pick(raycaster, camera, pointer, targets);
+      pointerDirty = false;
+      lastPickAt = now;
+      canvas.style.cursor = hovered ? "pointer" : "grab";
+      onHoverCallback(hovered?.repo ?? null, pointerPosition);
     }
   };
 }
@@ -52,9 +65,16 @@ function updatePointer(event, canvas, pointer) {
 function pick(raycaster, camera, pointer, targets) {
   if (!targets.length) return null;
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(targets, false)[0]?.object ?? null;
+  const hit = raycaster.intersectObjects(targets, false)[0] ?? null;
   if (!hit) return null;
-  return { object: hit, repo: hit.userData.repo ?? resolveRepo(hit) };
+  const object = hit.object;
+  const instanceRepo = Number.isInteger(hit.instanceId)
+    ? object.userData.repos?.[hit.instanceId]
+    : null;
+  return {
+    object,
+    repo: instanceRepo ?? object.userData.repo ?? resolveRepo(object)
+  };
 }
 
 function resolveRepo(object) {
